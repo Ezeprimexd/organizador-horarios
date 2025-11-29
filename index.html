@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organizador de Horarios Inteligente</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Chosen Palette: Warm neutrals (gray/white) with Indigo primary, and Red/Yellow/Blue for priority accents. -->
+    <!-- Application Structure Plan: The application uses a Dashboard structure focused on Calendar Views (Day, Week, Month) for exploring scheduled tasks. This is superior to a linear report structure as the core content (tasks) is time-based. The user flow is: Select View -> Navigate Time -> Interact/Add Task (CRUD via Modal). This maximizes exploration ease. -->
+    <!-- Visualization & Content Choices: Summary: Task Data -> Goal -> Viz/Presentation Method -> Interaction -> Justification -> Library/Method
+        1. Task List -> Inform -> Styled Cards -> Edit/Delete/Filter by Date -> Clarity and quick access to details -> Vanilla JS/HTML
+        2. Time/Date -> Change -> Navigation Buttons -> Navigate day/week/month -> Simple control over context -> Vanilla JS
+        3. Priorities -> Compare -> Color-coded dots/bars -> Visual distinction of urgency -> HTML/CSS Styling
+    -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+
+        /* Priority Styles */
+        .priority-alta { border-left: 5px solid #ef4444; background-color: #fef2f2; }
+        .priority-media { border-left: 5px solid #eab308; background-color: #fefce8; }
+        .priority-baja { border-left: 5px solid #3b82f6; background-color: #eff6ff; }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        .task-card { transition: transform 0.2s, box-shadow 0.2s; }
+        .task-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-calendar-check text-indigo-600 text-2xl"></i>
+                <h1 class="text-xl font-bold text-gray-900 tracking-tight">Chronos <span class="text-indigo-600">Organizer</span></h1>
+            </div>
+            <button onclick="openModal()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> Nueva Tarea
+            </button>
+        </div>
+    </header>
+
+    <!-- Toolbar & Navigation -->
+    <div class="bg-white border-b border-gray-200 p-4">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            
+            <!-- View Selector -->
+            <div class="flex bg-gray-100 p-1 rounded-lg">
+                <button onclick="changeView('day')" id="btn-view-day" class="px-4 py-1.5 text-sm font-medium rounded-md transition view-btn">Día</button>
+                <button onclick="changeView('week')" id="btn-view-week" class="px-4 py-1.5 text-sm font-medium rounded-md transition view-btn">Semana</button>
+                <button onclick="changeView('month')" id="btn-view-month" class="px-4 py-1.5 text-sm font-medium rounded-md transition view-btn">Mes</button>
+            </div>
+
+            <!-- Date Navigation -->
+            <div class="flex items-center gap-4">
+                <button onclick="navigate(-1)" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </button>
+                <h2 id="current-date-display" class="text-lg font-semibold w-48 text-center capitalize">Cargando...</h2>
+                <button onclick="navigate(1)" class="p-2 hover:bg-gray-100 rounded-full text-gray-600 transition">
+                    <i class="fa-solid fa-chevron-right"></i>
+                </button>
+            </div>
+            
+            <!-- Spacer for alignment on large screens -->
+            <div class="hidden sm:block w-24"></div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 overflow-y-auto bg-gray-50 p-4 relative" id="main-container">
+        <div class="max-w-7xl mx-auto h-full" id="content-area">
+            <!-- Content injected by JS -->
+            <div class="flex items-center justify-center h-full">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Form (Task Add/Edit) -->
+    <div id="task-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden transform transition-all scale-100">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800" id="modal-title">Nueva Tarea</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            
+            <form id="task-form" onsubmit="handleTaskSubmit(event)" class="p-6 space-y-4">
+                <input type="hidden" id="task-id">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                    <input type="text" id="task-title" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" placeholder="Ej: Reunión de proyecto">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Fecha y Hora</label>
+                    <input type="datetime-local" id="task-date" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Prioridad</label>
+                    <div class="grid grid-cols-3 gap-2">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="priority" value="ALTA" class="peer sr-only" required>
+                            <div class="text-center py-2 rounded-lg border border-gray-200 peer-checked:bg-red-50 peer-checked:border-red-500 peer-checked:text-red-700 hover:bg-gray-50 transition">
+                                <i class="fa-solid fa-circle-exclamation text-red-500 mb-1 block"></i> Alta
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="priority" value="MEDIA" class="peer sr-only">
+                            <div class="text-center py-2 rounded-lg border border-gray-200 peer-checked:bg-yellow-50 peer-checked:border-yellow-500 peer-checked:text-yellow-700 hover:bg-gray-50 transition">
+                                <i class="fa-solid fa-triangle-exclamation text-yellow-500 mb-1 block"></i> Media
+                            </div>
+                        </label>
+                        <label class="cursor-pointer">
+                            <input type="radio" name="priority" value="BAJA" class="peer sr-only">
+                            <div class="text-center py-2 rounded-lg border border-gray-200 peer-checked:bg-blue-50 peer-checked:border-blue-500 peer-checked:text-blue-700 hover:bg-gray-50 transition">
+                                <i class="fa-solid fa-circle-info text-blue-500 mb-1 block"></i> Baja
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
+                    <textarea id="task-desc" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition resize-none" placeholder="Detalles adicionales..."></textarea>
+                </div>
+
+                <div class="pt-2 flex gap-3">
+                    <button type="button" onclick="closeModal()" class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition">Cancelar</button>
+                    <button type="submit" class="flex-1 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium shadow-md transition">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal (Deletion) -->
+    <div id="confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden transform transition-all scale-100">
+            <div class="p-6 text-center">
+                <i class="fa-solid fa-triangle-exclamation text-yellow-500 text-4xl mb-3"></i>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">Confirmar Eliminación</h3>
+                <p class="text-sm text-gray-500">¿Estás seguro de que quieres eliminar esta tarea? Esta acción no se puede deshacer.</p>
+                <div class="mt-5 flex justify-center gap-3">
+                    <button id="confirm-cancel" onclick="closeConfirmModal()" class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition">Cancelar</button>
+                    <button id="confirm-delete" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium shadow-md transition">Eliminar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Javascript Logic -->
+    <script>
+        // --- Global State ---
+        const LOCAL_STORAGE_KEY = 'chronos_tasks';
+        let tasks = [];
+        let viewState = {
+            currentView: 'day', // 'day', 'week', 'month'
+            currentDate: new Date()
+        };
+
+        // --- Data Storage (Local Storage) ---
+        const loadTasksFromStorage = () => {
+            try {
+                const storedTasks = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (storedTasks) {
+                    tasks = JSON.parse(storedTasks).map(t => ({
+                        ...t,
+                        jsDate: new Date(t.dueDate)
+                    }));
+                } else {
+                    tasks = [];
+                }
+                // Sort initially by date for consistency
+                tasks.sort((a, b) => a.jsDate - b.jsDate);
+            } catch (e) {
+                console.error("Error loading tasks from localStorage:", e);
+                tasks = [];
+            }
+        };
+
+        const saveTasksToStorage = () => {
+            // Remove jsDate before saving to keep JSON clean
+            const tasksToStore = tasks.map(({ jsDate, ...rest }) => rest);
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasksToStore));
+        };
+
+        // --- Helpers ---
+        const uuid = () => {
+            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        };
+
+        const isSameDay = (d1, d2) => d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
+        
+        const getPriorityMeta = (p) => {
+            switch(p) {
+                case 'ALTA': return { class: 'priority-alta', label: 'Alta', color: 'text-red-600' };
+                case 'MEDIA': return { class: 'priority-media', label: 'Media', color: 'text-yellow-600' };
+                case 'BAJA': return { class: 'priority-baja', label: 'Baja', color: 'text-blue-600' };
+                default: return { class: 'border-l-4 border-gray-300', label: 'Normal', color: 'text-gray-600' };
+            }
+        };
+
+        const getWeekRange = (date) => {
+            const start = new Date(date);
+            const day = start.getDay() || 7; // Make Sunday 7
+            if (day !== 1) start.setHours(-24 * (day - 1));
+            start.setHours(0,0,0,0);
+            
+            const days = [];
+            for(let i=0; i<7; i++) {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                days.push(d);
+            }
+            return days;
+        };
+
+        // --- Initialization ---
+        window.initApp = () => {
+            loadTasksFromStorage();
+            renderApp();
+        };
+
+        // --- View Logic ---
+        window.changeView = (view) => {
+            viewState.currentView = view;
+            renderApp();
+        };
+
+        window.navigate = (direction) => {
+            const d = new Date(viewState.currentDate);
+            if (viewState.currentView === 'day') d.setDate(d.getDate() + direction);
+            else if (viewState.currentView === 'week') d.setDate(d.getDate() + (direction * 7));
+            else if (viewState.currentView === 'month') d.setMonth(d.getMonth() + direction);
+            
+            viewState.currentDate = d;
+            renderApp();
+        };
+
+        // --- Rendering ---
+        window.renderApp = () => {
+            updateControls();
+            const container = document.getElementById('content-area');
+            container.innerHTML = '';
+
+            if (viewState.currentView === 'day') renderDayView(container);
+            else if (viewState.currentView === 'week') renderWeekView(container);
+            else if (viewState.currentView === 'month') renderMonthView(container);
+        };
+
+        const updateControls = () => {
+            // Update Active Buttons
+            document.querySelectorAll('.view-btn').forEach(btn => {
+                btn.className = `px-4 py-1.5 text-sm font-medium rounded-md transition view-btn ${btn.id === `btn-view-${viewState.currentView}` ? 'bg-white text-indigo-600 shadow' : 'text-gray-600 hover:bg-gray-200'}`;
+            });
+
+            // Update Date Title
+            const opts = { year: 'numeric', month: 'long' };
+            
+            if (viewState.currentView === 'week') {
+                const week = getWeekRange(viewState.currentDate);
+                const start = week[0].toLocaleDateString('es-ES', {day: 'numeric', month: 'short'});
+                const end = week[6].toLocaleDateString('es-ES', {day: 'numeric', month: 'short', year: 'numeric'});
+                document.getElementById('current-date-display').textContent = `${start} - ${end}`;
+            } else if (viewState.currentView === 'day') {
+                opts.day = 'numeric';
+                document.getElementById('current-date-display').textContent = viewState.currentDate.toLocaleDateString('es-ES', opts);
+            } else {
+                 document.getElementById('current-date-display').textContent = viewState.currentDate.toLocaleDateString('es-ES', opts);
+            }
+        };
+
+        // 1. Day View Renderer
+        const renderDayView = (container) => {
+            const dayTasks = tasks.filter(t => isSameDay(t.jsDate, viewState.currentDate));
+            
+            // Sort by Priority (High -> Low) then Time
+            const priorityOrder = { 'ALTA': 0, 'MEDIA': 1, 'BAJA': 2 };
+            dayTasks.sort((a,b) => {
+                const pDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+                if (pDiff !== 0) return pDiff;
+                return a.jsDate - b.jsDate;
+            });
+
+            if (dayTasks.length === 0) {
+                container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-gray-400">
+                    <i class="fa-regular fa-calendar-xmark text-6xl mb-4 opacity-50"></i>
+                    <p class="text-xl">No hay tareas para este día</p>
+                    <button onclick="openModal()" class="mt-4 text-indigo-600 hover:underline">Crear una tarea</button>
+                </div>`;
+                return;
+            }
+
+            const wrapper = document.createElement('div');
+            wrapper.className = "space-y-3 max-w-3xl mx-auto py-6";
+            
+            dayTasks.forEach(task => {
+                const meta = getPriorityMeta(task.priority);
+                const timeStr = task.jsDate.toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'});
+                
+                wrapper.innerHTML += `
+                    <div class="bg-white p-4 rounded-lg shadow-sm hover:shadow-md task-card flex justify-between items-center ${meta.class}">
+                        <div class="flex-1 ml-2">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-xs font-bold px-2 py-0.5 rounded bg-gray-100 ${meta.color}">${meta.label}</span>
+                                <span class="text-xs text-gray-500 font-mono"><i class="fa-regular fa-clock mr-1"></i>${timeStr}</span>
+                            </div>
+                            <h3 class="font-bold text-gray-800 text-lg">${task.title}</h3>
+                            ${task.description ? `<p class="text-gray-500 text-sm mt-1 line-clamp-2">${task.description}</p>` : ''}
+                        </div>
+                        <div class="flex gap-2 ml-4">
+                            <button onclick="editTask('${task.id}')" class="p-2 text-gray-400 hover:text-indigo-600 transition"><i class="fa-solid fa-pen"></i></button>
+                            <button onclick="openConfirmModal('${task.id}')" class="p-2 text-gray-400 hover:text-red-500 transition"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                `;
+            });
+            container.appendChild(wrapper);
+        };
+
+        // 2. Week View Renderer
+        const renderWeekView = (container) => {
+            const weekDays = getWeekRange(viewState.currentDate);
+            const grid = document.createElement('div');
+            grid.className = "grid grid-cols-1 md:grid-cols-7 gap-4 h-full py-4";
+
+            weekDays.forEach(day => {
+                const isToday = isSameDay(day, new Date());
+                const colTasks = tasks.filter(t => isSameDay(t.jsDate, day));
+                
+                let html = `
+                    <div class="flex flex-col bg-white rounded-xl shadow-sm overflow-hidden h-full border ${isToday ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-gray-200'}">
+                        <div class="p-3 text-center border-b border-gray-100 ${isToday ? 'bg-indigo-50' : 'bg-gray-50'}">
+                            <p class="text-xs font-bold uppercase text-gray-500">${day.toLocaleDateString('es-ES', {weekday: 'short'})}</p>
+                            <p class="text-xl font-bold ${isToday ? 'text-indigo-600' : 'text-gray-800'}">${day.getDate()}</p>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-2 space-y-2 bg-white">
+                `;
+
+                if (colTasks.length === 0) {
+                     html += `<div class="h-full flex items-center justify-center opacity-20"><i class="fa-solid fa-minus"></i></div>`;
+                } else {
+                    // Simple sort by time
+                    colTasks.sort((a,b) => a.jsDate - b.jsDate);
+                    colTasks.forEach(t => {
+                        const meta = getPriorityMeta(t.priority);
+                        html += `
+                            <div onclick="editTask('${t.id}')" class="cursor-pointer text-xs p-2 rounded border-l-2 bg-gray-50 hover:bg-white hover:shadow transition ${meta.class.replace('border-l-5', 'border-l-4')}">
+                                <div class="font-bold truncate text-gray-700">${t.title}</div>
+                                <div class="flex justify-between mt-1 text-gray-400">
+                                    <span>${t.jsDate.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'})}</span>
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += `</div></div>`;
+                grid.innerHTML += html;
+            });
+            container.appendChild(grid);
+        };
+
+        // 3. Month View Renderer
+        const renderMonthView = (container) => {
+            const year = viewState.currentDate.getFullYear();
+            const month = viewState.currentDate.getMonth();
+            
+            // First day of month
+            const firstDay = new Date(year, month, 1);
+            // Day of week (0-6), adjust for Monday start
+            let startDay = firstDay.getDay() || 7; 
+            startDay = startDay - 1; // 0 = Monday
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const grid = document.createElement('div');
+            grid.className = "flex flex-col h-full bg-white rounded-xl shadow-sm border border-gray-200 mt-4";
+            
+            // Header
+            const headers = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+            let headerHTML = `<div class="grid grid-cols-7 border-b border-gray-200 bg-gray-50">`;
+            headers.forEach(h => headerHTML += `<div class="py-2 text-center text-sm font-bold text-gray-500">${h}</div>`);
+            headerHTML += `</div>`;
+            
+            let bodyHTML = `<div class="grid grid-cols-7 flex-1 auto-rows-fr">`; // auto-rows-fr ensures equal height
+
+            // Empty cells
+            for(let i=0; i<startDay; i++) {
+                bodyHTML += `<div class="bg-gray-50 border-b border-r border-gray-100"></div>`;
+            }
+
+            // Days
+            const today = new Date();
+            for(let i=1; i<=daysInMonth; i++) {
+                const current = new Date(year, month, i);
+                const isToday = isSameDay(current, today);
+                
+                const daysTasks = tasks.filter(t => isSameDay(t.jsDate, current));
+                const high = daysTasks.filter(t => t.priority === 'ALTA').length;
+                const med = daysTasks.filter(t => t.priority === 'MEDIA').length;
+                const low = daysTasks.filter(t => t.priority === 'BAJA').length;
+
+                bodyHTML += `
+                    <div onclick="selectDateFromMonth(${year}, ${month}, ${i})" class="border-b border-r border-gray-100 p-2 relative cursor-pointer hover:bg-indigo-50 transition h-24 sm:h-32 flex flex-col ${isToday ? 'bg-indigo-50 ring-inset ring-2 ring-indigo-400' : ''}">
+                        <span class="text-sm font-medium ${isToday ? 'text-indigo-700 font-bold' : 'text-gray-700'}">${i}</span>
+                        
+                        <div class="mt-auto flex flex-col gap-1">
+                            ${high > 0 ? `<div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-red-500"></div><span class="text-xs text-gray-500">${high} Alta</span></div>` : ''}
+                            ${med > 0 ? `<div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-yellow-500"></div><span class="text-xs text-gray-500">${med} Media</span></div>` : ''}
+                            ${low > 0 ? `<div class="flex items-center gap-1"><div class="w-2 h-2 rounded-full bg-blue-500"></div><span class="text-xs text-gray-500">${low} Baja</span></div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            bodyHTML += `</div>`;
+            grid.innerHTML = headerHTML + bodyHTML;
+            container.appendChild(grid);
+        };
+
+        // --- Task Modal Interaction ---
+        window.openModal = (reset = true) => {
+            const modal = document.getElementById('task-modal');
+            if(reset) {
+                document.getElementById('task-form').reset();
+                document.getElementById('task-id').value = '';
+                document.getElementById('modal-title').textContent = "Nueva Tarea";
+                
+                // Set default date to currently selected date + current time
+                const now = new Date();
+                const defaultDate = new Date(viewState.currentDate);
+                defaultDate.setHours(now.getHours(), now.getMinutes());
+                // ISO format for datetime-local needs correction for local timezone offset
+                const offset = defaultDate.getTimezoneOffset() * 60000;
+                const localISOTime = (new Date(defaultDate - offset)).toISOString().slice(0, 16);
+                document.getElementById('task-date').value = localISOTime;
+            }
+            modal.classList.remove('hidden');
+        };
+
+        window.closeModal = () => {
+            document.getElementById('task-modal').classList.add('hidden');
+        };
+
+        window.handleTaskSubmit = (e) => {
+            e.preventDefault();
+            const id = document.getElementById('task-id').value;
+            const title = document.getElementById('task-title').value;
+            const dateVal = document.getElementById('task-date').value;
+            const priority = document.querySelector('input[name="priority"]:checked').value;
+            const desc = document.getElementById('task-desc').value;
+
+            const now = new Date();
+
+            const newTask = {
+                id: id || uuid(),
+                title,
+                dueDate: dateVal,
+                jsDate: new Date(dateVal),
+                priority,
+                description: desc,
+                updatedAt: now.toISOString()
+            };
+
+            if(id) {
+                // Update
+                const index = tasks.findIndex(t => t.id === id);
+                if (index !== -1) {
+                    tasks[index] = newTask;
+                }
+            } else {
+                // Create
+                newTask.createdAt = now.toISOString();
+                tasks.push(newTask);
+            }
+            
+            tasks.sort((a, b) => a.jsDate - b.jsDate);
+            saveTasksToStorage();
+            closeModal();
+            renderApp();
+        };
+
+        window.editTask = (id) => {
+            const t = tasks.find(x => x.id === id);
+            if(!t) return;
+
+            document.getElementById('task-id').value = t.id;
+            document.getElementById('task-title').value = t.title;
+            document.getElementById('task-date').value = t.dueDate; // format matches datetime-local
+            document.getElementById('task-desc').value = t.description;
+            
+            // Radio select
+            const radios = document.getElementsByName('priority');
+            radios.forEach(r => {
+                if(r.value === t.priority) r.checked = true;
+            });
+
+            document.getElementById('modal-title').textContent = "Editar Tarea";
+            window.openModal(false);
+        };
+
+        window.selectDateFromMonth = (y, m, d) => {
+            viewState.currentDate = new Date(y, m, d);
+            changeView('day');
+        };
+
+        // --- Confirmation Modal Logic ---
+        let taskIdToDelete = null;
+
+        window.openConfirmModal = (id) => {
+            taskIdToDelete = id;
+            document.getElementById('confirm-modal').classList.remove('hidden');
+            
+            document.getElementById('confirm-delete').onclick = () => {
+                deleteTaskItem(taskIdToDelete);
+                closeConfirmModal();
+            };
+        };
+
+        window.closeConfirmModal = () => {
+            document.getElementById('confirm-modal').classList.add('hidden');
+            taskIdToDelete = null;
+        };
+
+        const deleteTaskItem = (id) => {
+            tasks = tasks.filter(t => t.id !== id);
+            saveTasksToStorage();
+            renderApp();
+        };
+
+        // Start the application when the window loads
+        window.addEventListener('load', initApp);
+    </script>
+</body>
+</html>
